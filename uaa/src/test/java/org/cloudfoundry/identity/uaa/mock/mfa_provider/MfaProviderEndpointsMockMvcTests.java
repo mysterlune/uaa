@@ -2,10 +2,15 @@ package org.cloudfoundry.identity.uaa.mock.mfa_provider;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.cloudfoundry.identity.uaa.mfa_provider.GoogleMfaProviderConfig;
+import org.cloudfoundry.identity.uaa.mfa_provider.JdbcMfaProviderProvisioning;
 import org.cloudfoundry.identity.uaa.mfa_provider.MfaProvider;
+import org.cloudfoundry.identity.uaa.mfa_provider.MfaProviderProvisioning;
 import org.cloudfoundry.identity.uaa.mock.InjectedMockContextTest;
+import org.cloudfoundry.identity.uaa.mock.util.MockMvcUtils;
 import org.cloudfoundry.identity.uaa.util.JsonUtils;
+import org.cloudfoundry.identity.uaa.zone.IdentityZone;
 import org.cloudfoundry.identity.uaa.zone.IdentityZoneHolder;
+import org.cloudfoundry.identity.uaa.zone.IdentityZoneSwitchingFilter;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,14 +19,22 @@ import org.springframework.security.oauth2.common.util.RandomValueStringGenerato
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import static org.junit.Assert.assertTrue;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-public class MfaProviderEndpointsMockMVCTest extends InjectedMockContextTest {
+public class MfaProviderEndpointsMockMvcTests extends InjectedMockContextTest {
 
     String adminToken;
+    MfaProviderProvisioning mfaProviderProvisioning;
     @Before
     public void setup() throws Exception{
+        mfaProviderProvisioning = getWebApplicationContext().getBean(JdbcMfaProviderProvisioning.class);
         adminToken = testClient.getClientCredentialsOAuthAccessToken("admin", "adminsecret",
                 "clients.read clients.write clients.secret clients.admin uaa.admin");
     }
@@ -53,6 +66,41 @@ public class MfaProviderEndpointsMockMVCTest extends InjectedMockContextTest {
                         .contentType(APPLICATION_JSON)
                         .content(JsonUtils.writeValueAsString(mfaAsJSON)));
         Assert.assertEquals(HttpStatus.UNPROCESSABLE_ENTITY.value(), authorization.andReturn().getResponse().getStatus());
+    }
+
+
+    @Test
+    public void testRetrieveMfaProviders() throws Exception {
+        int mfaProvidersCount = mfaProviderProvisioning.retrieveAll(IdentityZoneHolder.get().getId()).size();
+        MvcResult authorization = getMockMvc().perform(
+                get("/mfa-providers")
+                        .header("Authorization", "Bearer " + adminToken)).andReturn();
+
+        Assert.assertEquals(HttpStatus.OK.value(), authorization.getResponse().getStatus());
+        List<MfaProvider> mfaProviders = JsonUtils.readValue(authorization.getResponse().getContentAsString(), List.class);
+        Assert.assertEquals(mfaProvidersCount, mfaProviders.size());
+    }
+
+    @Test
+    public void testRetrieveMfaProviderById() throws Exception {
+        MfaProvider<GoogleMfaProviderConfig> createdProvider = constructGoogleProvider();
+        createdProvider.setIdentityZoneId(IdentityZoneHolder.get().getId());
+        createdProvider = mfaProviderProvisioning.create(createdProvider, IdentityZoneHolder.get().getId());
+        MvcResult result = getMockMvc().perform(
+                get("/mfa-providers/" + createdProvider.getId())
+                        .header("Authorization", "Bearer " + adminToken)).andReturn();
+
+        Assert.assertEquals(HttpStatus.OK.value(), result.getResponse().getStatus());
+        Assert.assertEquals(JsonUtils.writeValueAsString(createdProvider), result.getResponse().getContentAsString());
+    }
+
+    @Test
+    public void testRetrieveMfaProviderByIdInvalid() throws Exception {
+        MvcResult authorization = getMockMvc().perform(
+                get("/mfa-providers/abcd")
+                        .header("Authorization", "Bearer " + adminToken)).andReturn();
+
+        Assert.assertEquals(HttpStatus.NOT_FOUND.value(), authorization.getResponse().getStatus());
     }
 
     private MfaProvider<GoogleMfaProviderConfig> constructGoogleProvider() {

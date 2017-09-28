@@ -4,17 +4,11 @@ import org.cloudfoundry.identity.uaa.test.JdbcTestBase;
 import org.cloudfoundry.identity.uaa.zone.IdentityZoneHolder;
 import org.junit.Before;
 import org.junit.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.common.util.RandomValueStringGenerator;
 
-import java.sql.PreparedStatement;
-
+import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 
 public class JdbcMfaProviderProvisioningTest extends JdbcTestBase {
     JdbcMfaProviderProvisioning mfaProviderProvisioning;
@@ -38,6 +32,21 @@ public class JdbcMfaProviderProvisioningTest extends JdbcTestBase {
         assertEquals(mfaProvider.getName(), retrieved.getName());
         assertEquals(mfaProvider.getConfig(), retrieved.getConfig());
     }
+
+    @Test
+    public void testRetrieveAll() {
+        String zoneId = IdentityZoneHolder.get().getId();
+        List<MfaProvider> providers = mfaProviderProvisioning.retrieveAll(zoneId);
+        int beforeCount = providers.size();
+
+        MfaProvider mfaProvider = constructGoogleProvider();
+        mfaProviderProvisioning.create(mfaProvider, zoneId);
+
+        providers= mfaProviderProvisioning.retrieveAll(zoneId);
+        int afterCount = providers.size();
+        assertEquals(1, afterCount-beforeCount);
+    }
+
 
     @Test
     public void testRetrieve() {
